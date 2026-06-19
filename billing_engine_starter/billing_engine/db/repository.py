@@ -16,6 +16,7 @@ Conventions:
 
 from __future__ import annotations
 
+from ast import Return
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
@@ -54,7 +55,12 @@ class CustomerRepository:
     def list_all(self) -> list[Customer]:
         # TODO Day 2
         raise NotImplementedError("Day 2: implement CustomerRepository.list_all")
-
+def find_by_email(self, email: str) -> Optional[Customer]:
+    with self.db.connect() as conn:
+        row = q.select_customer_by_email(conn, email)
+    if row is None:
+        return None
+    return Customer(id=row["id"], name=row["name"], email=row["email"], country_code=row["country_code"], state_code=row["state_code"])
 
 # ============================================================
 # PLANS  +  PLAN TIERS
@@ -74,7 +80,11 @@ class PlanRepository:
     def list_all(self) -> list[Plan]:
         # TODO Day 2.
         raise NotImplementedError("Day 2: implement PlanRepository.list_all")
-
+Open transaction
+    INSERT (name, pricing_type, billing_period, currency, config_json)
+    REMEMBER: convert .pricing_type.value and .billing_period.value
+    Get lastrowid
+Return Plan with id populated
 
 class PlanTierRepository:
     def __init__(self, db: Database) -> None:
@@ -84,7 +94,11 @@ class PlanTierRepository:
         """Insert a tier; return new id."""
         # TODO Day 2.
         raise NotImplementedError("Day 2: implement PlanTierRepository.add")
-
+Open transaction
+   INSERT (plan_id, from_units, to_units, unit_price)
+   Store unit_price using .to_storage()
+    Get lastrowid
+Return the new tier id
     def list_for_plan(self, plan_id: int, currency: str) -> list[tuple[int, Optional[int], Money]]:
         """Return [(from_units, to_units, unit_price)] ordered by from_units.
 
@@ -93,7 +107,11 @@ class PlanTierRepository:
         """
         # TODO Day 2.
         raise NotImplementedError("Day 2: implement PlanTierRepository.list_for_plan")
-
+SELECT all tiers for plan_id, ordered by from_units
+For each row:
+    Reconstruct as (from_units, to_units, Money(amount, currency))
+    NOTE: currency is passed in as a parameter (from the parent plan)
+Return list
 
 # ============================================================
 # DISCOUNTS
@@ -110,7 +128,16 @@ class DiscountRepository:
         """Return raw row as dict, or None. (Discount has no dataclass yet — we use a dict for now.)"""
         # TODO Day 2.
         raise NotImplementedError("Day 2: implement DiscountRepository.get_by_code")
-
+def _row_to_subscription(self, row) -> Subscription:
+    """Convert DB row to Subscription object."""
+    return Subscription(
+        id=row["id"],
+        status=SubscriptionStatus(row["status"]),  # string → enum
+        current_period_start=date.fromisoformat(row["current_period_start"]),  # string → date
+        current_period_end=date.fromisoformat(row["current_period_end"]),
+        trial_end=date.fromisoformat(row["trial_end"]) if row["trial_end"] else None,
+        ...  # (map all other fields)
+    )
 
 # ============================================================
 # SUBSCRIPTIONS
@@ -175,7 +202,10 @@ class UsageRecordRepository:
     ) -> int:
         # TODO Day 2: SELECT COALESCE(SUM(quantity), 0) ...
         raise NotImplementedError("Day 2: implement UsageRecordRepository.sum_for_period")
-
+SELECT COALESCE(SUM(quantity), 0) FROM usage_records
+WHERE subscription_id = ? AND metric = ?
+Return the sum (int)
+NOTE: Do NOT filter by date range
 
 # ============================================================
 # INVOICES + LINE ITEMS
@@ -215,7 +245,11 @@ class InvoiceRepository:
         # TODO Day 4.
         raise NotImplementedError("Day 4: implement InvoiceRepository.set_pdf_path")
 
-
+Open transaction
+  INSERT all fields (convert Money via .to_storage(), dates via .isoformat(), status.value)
+  Get lastrowid
+Return Invoice with id populated
+NOTE: Do NOT catch IntegrityError
 class InvoiceLineItemRepository:
     def __init__(self, db: Database) -> None:
         self.db = db
@@ -227,7 +261,11 @@ class InvoiceLineItemRepository:
     def list_for_invoice(self, invoice_id: int) -> list[InvoiceLineItem]:
         # TODO Day 2.
         raise NotImplementedError("Day 2: implement InvoiceLineItemRepository.list_for_invoice")
-
+Open transaction
+   INSERT (invoice_id, description, amount, kind)
+  Convert amount.to_storage() and kind.value
+  Get lastrowid
+Return InvoiceLineItem with id populated
 
 # ============================================================
 # LEDGER — APPEND-ONLY (do not implement update/delete)
@@ -277,3 +315,23 @@ class PaymentAttemptRepository:
     def count_for_invoice(self, invoice_id: int) -> int:
         # TODO Day 3.
         raise NotImplementedError("Day 3: implement PaymentAttemptRepository.count_for_invoice")
+# ❌ WRONG
+"SELECT * FROM customers WHERE id = {customer_id}"
+
+# ✅ RIGHT
+"SELECT * FROM customers WHERE id = ?", (customer_id,)
+# ❌ WRONG
+"INSERT INTO subscriptions (status) VALUES (?)", (subscription.status,)
+
+# ✅ RIGHT
+"INSERT INTO subscriptions (status) VALUES (?)", (subscription.status.value,)
+# ❌ WRONG
+"INSERT INTO invoices (subtotal) VALUES (?)", (invoice.subtotal.amount,)
+
+# ✅ RIGHT
+"INSERT INTO invoices (subtotal) VALUES (?)", (invoice.subtotal.to_storage(),)
+# ❌ WRONG
+subscription.trial_end.isoformat()
+
+# ✅ RIGHT
+subscription.trial_end.isoformat() if subscription.trial_end else None

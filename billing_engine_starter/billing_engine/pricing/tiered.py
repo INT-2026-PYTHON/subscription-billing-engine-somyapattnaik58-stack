@@ -16,6 +16,7 @@ Tier boundaries are HALF-OPEN on the right: a tier (from, to, price)
 covers units strictly less than `to` (i.e. [from, to)).
 """
 
+from abc import abstractmethod
 from dataclasses import dataclass
 from typing import Optional
 
@@ -40,3 +41,90 @@ class TieredPricing(PricingStrategy):
     def calculate(self, quantity: int) -> Money:
         # TODO Day 1
         raise NotImplementedError("Day 1: implement TieredPricing.calculate")
+class TieredPricing(PricingStrategy):
+    """Charges across multiple price tiers based on cumulative quantity."""
+
+    def __init__(self, tiers: list[Tier]) -> None:
+        if not tiers:
+            raise ValueError("tiers cannot be empty")
+
+        currency = tiers[0].unit_price.currency
+
+        for i, tier in enumerate(tiers):
+            if tier.unit_price.currency != currency:
+                raise ValueError("all tiers must use the same currency")
+
+            if i > 0:
+                prev = tiers[i - 1]
+
+                if prev.to_units != tier.from_units:
+                    raise ValueError("tiers must be contiguous")
+
+        if tiers[-1].to_units is not None:
+            raise ValueError("top tier must be open ended")
+
+        self.tiers = tiers
+        self.currency = currency
+
+    def calculate(self, quantity: int) -> Money:
+        if quantity < 0:
+            raise ValueError("quantity cannot be negative")
+
+        total = 0
+
+        for tier in self.tiers:
+            if quantity <= tier.from_units:
+                break
+
+            upper = quantity if tier.to_units is None else min(quantity, tier.to_units)
+
+            units_in_tier = upper - tier.from_units
+
+            if units_in_tier > 0:
+                total += units_in_tier * tier.unit_price.amount
+
+        return Money(total, self.currency)
+    class TieredPricing(PricingStrategy):
+    """Charges across multiple price tiers based on cumulative quantity."""
+
+    def __init__(self, tiers: list[Tier]) -> None:
+        if not tiers:
+            raise ValueError("tiers cannot be empty")
+
+        currency = tiers[0].unit_price.currency
+
+        for i, tier in enumerate(tiers):
+            if tier.unit_price.currency != currency:
+                raise ValueError("all tiers must use the same currency")
+
+            if i > 0:
+                prev = tiers[i - 1]
+
+                if prev.to_units != tier.from_units:
+                    raise ValueError("tiers must be contiguous")
+
+        if tiers[-1].to_units is not None:
+            raise ValueError("top tier must be open ended")
+
+        self.tiers = tiers
+        self.currency = currency
+
+    @abstractmethod
+    def calculate(self, quantity: int) -> Money:
+        if quantity < 0:
+            raise ValueError("quantity cannot be negative")
+
+        total = 0
+
+        for tier in self.tiers:
+            if quantity <= tier.from_units:
+                break
+
+            upper = quantity if tier.to_units is None else min(quantity, tier.to_units)
+
+            units_in_tier = upper - tier.from_units
+
+            if units_in_tier > 0:
+                total += units_in_tier * tier.unit_price.amount
+
+        return Money(total, self.currency)
